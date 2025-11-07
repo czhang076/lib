@@ -12,4 +12,4 @@ It includes:
 
 The goal is to **accumulate useful code fragments** and **solidify understanding through hands-on practice**.
 
-## Content Structure (Planned)
+## Content Structure
