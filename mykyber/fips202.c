@@ -208,14 +208,18 @@ void shake256(uint8_t *out, size_t outlen, const uint8_t *in, size_t inlen) {
   shake256_squeeze(out, outlen, &st);
 }
 
-void sha3_256(uint8_t *out, const uint8_t *in, size_t inlen) {
+void sha3_256(uint8_t out[32], const uint8_t *in, size_t inlen) {
   keccak_state st;
+  uint8_t t[SHA3_256_RATE];
   keccak_absorb_once(&st, SHA3_256_RATE, in, inlen, 0x06);
-  keccak_squeezeblocks(out, 1, &st, SHA3_256_RATE);
+  keccak_squeezeblocks(t, 1, &st, SHA3_256_RATE);
+  memcpy(out, t, 32);
 }
 
-void sha3_512(uint8_t *out, const uint8_t *in, size_t inlen) {
+void sha3_512(uint8_t out[64], const uint8_t *in, size_t inlen) {
   keccak_state st;
+  uint8_t t[SHA3_512_RATE];
   keccak_absorb_once(&st, SHA3_512_RATE, in, inlen, 0x06);
-  keccak_squeezeblocks(out, 1, &st, SHA3_512_RATE);
+  keccak_squeezeblocks(t, 1, &st, SHA3_512_RATE);
+  memcpy(out, t, 64);
 }
