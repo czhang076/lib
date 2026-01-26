@@ -7,6 +7,7 @@
 #include "poly.h"
 #include "polyvec.h"
 #include "indcpa.h"
+#include "kem.h"
 
 #define N KYBER_N
 #define Q KYBER_Q
@@ -254,6 +255,28 @@ int test_indcpa_encrypt_decrypt() {
     return 0;
 }
 
+int test_kem_enc_dec() {
+    printf("[Test] Running KEM encaps/decaps check...\n");
+
+    uint8_t pk[KYBER_PUBLICKEYBYTES];
+    uint8_t sk[KYBER_SECRETKEYBYTES];
+    uint8_t ct[KYBER_CIPHERTEXTBYTES];
+    uint8_t ss1[KYBER_SSBYTES];
+    uint8_t ss2[KYBER_SSBYTES];
+
+    crypto_kem_keypair(pk, sk);
+    crypto_kem_enc(ct, ss1, pk);
+    crypto_kem_dec(ss2, ct, sk);
+
+    if (memcmp(ss1, ss2, KYBER_SSBYTES) != 0) {
+        printf("FAIL: KEM decaps mismatch\n");
+        return 1;
+    }
+
+    printf("PASS: KEM encaps/decaps ok.\n");
+    return 0;
+}
+
 int main() {
     printf("=== Kyber Core Math Test ===\n");
     printf("Params: N=%d, Q=%d\n", N, Q);
@@ -268,6 +291,8 @@ int main() {
     fail |= test_noise_bounds();
     printf("--------------------------------\n");
     fail |= test_indcpa_encrypt_decrypt();
+    printf("--------------------------------\n");
+    fail |= test_kem_enc_dec();
 
     if(fail) {
         printf("\n❌ SOME TESTS FAILED\n");
