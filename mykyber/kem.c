@@ -23,7 +23,7 @@ static int verify(const uint8_t *a, const uint8_t *b, size_t len) {
   for (size_t i = 0; i < len; i++) {
     diff |= (uint8_t)(a[i] ^ b[i]);
   }
-  return (int)diff;
+  return (int)((diff | (uint8_t)(-diff)) >> 7);
 }
 
 static void cmov(uint8_t *r, const uint8_t *x, size_t len, uint8_t b) {
@@ -61,17 +61,27 @@ void crypto_kem_dec(uint8_t ss[KYBER_SSBYTES], const uint8_t ct[KYBER_CIPHERTEXT
   uint8_t buf[2 * KYBER_SYMBYTES];
   uint8_t kr[2 * KYBER_SYMBYTES];
   uint8_t cmp[KYBER_CIPHERTEXTBYTES];
+  uint8_t ss_reject[KYBER_SSBYTES];
+  uint8_t reject_in[KYBER_SYMBYTES + KYBER_CIPHERTEXTBYTES];
+  uint8_t fail;
 
   indcpa_dec(buf, ct, sk);
 
-  hash_h(buf + KYBER_SYMBYTES, sk + KYBER_INDCPA_SECRETKEYBYTES, KYBER_PUBLICKEYBYTES);
+  memcpy(buf + KYBER_SYMBYTES,
+         sk + KYBER_INDCPA_SECRETKEYBYTES + KYBER_PUBLICKEYBYTES,
+         KYBER_SYMBYTES);
   hash_g(kr, buf, 2 * KYBER_SYMBYTES);
 
   indcpa_enc(cmp, buf, sk + KYBER_INDCPA_SECRETKEYBYTES, kr + KYBER_SYMBYTES);
 
+  fail = (uint8_t)verify(ct, cmp, KYBER_CIPHERTEXTBYTES);
+
   hash_h(kr + KYBER_SYMBYTES, ct, KYBER_CIPHERTEXTBYTES);
-
-  cmov(kr, sk + KYBER_SECRETKEYBYTES - KYBER_SYMBYTES, KYBER_SYMBYTES, (uint8_t)verify(ct, cmp, KYBER_CIPHERTEXTBYTES));
-
   kdf(ss, kr, 2 * KYBER_SYMBYTES);
+
+  memcpy(reject_in, sk + KYBER_SECRETKEYBYTES - KYBER_SYMBYTES, KYBER_SYMBYTES);
+  memcpy(reject_in + KYBER_SYMBYTES, ct, KYBER_CIPHERTEXTBYTES);
+  kdf(ss_reject, reject_in, sizeof(reject_in));
+
+  cmov(ss, ss_reject, KYBER_SSBYTES, fail);
 }
