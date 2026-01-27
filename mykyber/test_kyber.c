@@ -63,7 +63,9 @@ void ui_hex(const char *label, const uint8_t *data, size_t len, int highlight_id
     // Show first 16 bytes
     size_t preview = 16;
     for (size_t i = 0; i < preview && i < len; i++) {
-        if (i == highlight_idx) printf("%s%02X%s ", COLOR_RED, data[i], COLOR_RESET); // Highlight for errors
+        if (highlight_idx >= 0 && i == (size_t)highlight_idx) {
+            printf("%s%02X%s ", COLOR_RED, data[i], COLOR_RESET); // Highlight for errors
+        }
         else printf("%02X ", data[i]);
     }
     
@@ -248,10 +250,16 @@ void run_detailed_flow(int attack_mode) {
     ui_step("Final Agreement Check");
     
     printf("  Bob's Key:   ");
-    for(int i=0;i<8;i++) printf("%02X ", ss_bob[i]); printf("...\n");
+    for(int i=0;i<8;i++) {
+        printf("%02X ", ss_bob[i]);
+    }
+    printf("...\n");
     
     printf("  Alice's Key: ");
-    for(int i=0;i<8;i++) printf("%02X ", ss_alice[i]); printf("...\n");
+    for(int i=0;i<8;i++) {
+        printf("%02X ", ss_alice[i]);
+    }
+    printf("...\n");
     
     if (memcmp(ss_alice, ss_bob, KYBER_SSBYTES) == 0) {
         printf("\n  %s%s✅ SUCCESS: SECURE CHANNEL ESTABLISHED%s\n", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
