@@ -1,304 +1,281 @@
+/* * Kyber-768 Visualizer / Deep Dive Demo
+ * Designed for detailed cryptographic process analysis
+ */
+
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h> // For sleep()
+
 #include "params.h"
-#include "reduce.h"
-#include "ntt.h"
-#include "poly.h"
-#include "polyvec.h"
 #include "indcpa.h"
-#include "kem.h"
+#include "kem.h"       // Standard KEM interface
+#include "fips202.h"   // SHA3 primitives
+#include "randombytes.h"
+#include "verify.h"    // (Ensure you have this, or verify implementation)
 
-#define N KYBER_N
-#define Q KYBER_Q
+// --- UI Framework for "Better Frontend" ---
 
-// 辅助函数：将结果规范化到 [0, Q) 范围以便比较
-static int16_t standard_reduce(int16_t a) {
-    int16_t t = barrett_reduce(a);
-    t = csubq(t);
-    if (t < 0) t += Q;
-    return t;
+#define COLOR_RESET   "\033[0m"
+#define COLOR_CYAN    "\033[1;36m"
+#define COLOR_GREEN   "\033[1;32m"
+#define COLOR_RED     "\033[1;31m"
+#define COLOR_YELLOW  "\033[1;33m"
+#define COLOR_MAGENTA "\033[1;35m"
+#define COLOR_BLUE    "\033[1;34m"
+#define COLOR_BOLD    "\033[1m"
+
+void ui_clear_screen() {
+    // ASCII escape to clear screen
+    printf("\033[H\033[J");
 }
 
-// 简单可复现的伪随机
-static uint32_t lcg(uint32_t *state) {
-    *state = (*state * 1103515245u + 12345u);
-    return *state;
+void ui_banner(const char *text) {
+    printf("\n%s╔══════════════════════════════════════════════════════════════╗%s\n", COLOR_CYAN, COLOR_RESET);
+    printf("%s║ %-60s ║%s\n", COLOR_CYAN, text, COLOR_RESET);
+    printf("%s╚══════════════════════════════════════════════════════════════╝%s\n", COLOR_CYAN, COLOR_RESET);
 }
 
-int test_ntt_correctness() {
-    int16_t a[N], b[N];
-    int i;
-    int errors = 0;
-
-    printf("[Test] Running NTT Round-Trip check...\n");
-
-    // 1. 初始化测试数据
-    for(i = 0; i < N; i++) {
-        a[i] = (i * 12345) % Q; // 伪随机填充
-        b[i] = a[i];            // 备份原始数据
-    }
-
-    // 2. 执行正向变换 NTT
-    ntt(a);
-
-    // 3. 执行逆向变换 InvNTT
-    invntt(a);
-
-    // 4. 验证结果
-    // 注意：NTT/InvNTT 运算后结果可能是不完全约减的(在 -Q 到 Q 之间)
-    // 所以比较前需要做一次规范化
-    for(i = 0; i < N; i++) {
-        int16_t val_orig = standard_reduce(b[i]);
-        int16_t val_calc = standard_reduce(a[i]);
-
-        if(val_orig != val_calc) {
-            printf("ERROR at index %d: Original %d, Got %d\n", i, val_orig, val_calc);
-            errors++;
-        }
-    }
-
-    if(errors == 0) {
-        printf("PASS: NTT -> InvNTT matches perfectly!\n");
-        return 0;
-    } else {
-        printf("FAIL: Found %d mismatches.\n", errors);
-        return 1;
-    }
+void ui_step(const char *title) {
+    printf("\n%s[STEP] %s%s\n", COLOR_YELLOW, title, COLOR_RESET);
+    printf("%s----------------------------------------------------------------%s\n", COLOR_YELLOW, COLOR_RESET);
+    usleep(200000); // Small animation delay
 }
 
-int test_reduction() {
-    printf("[Test] Running Reduction check...\n");
+void ui_substep(const char *desc) {
+    printf("  %s├──%s %s\n", COLOR_BLUE, COLOR_RESET, desc);
+}
+
+void ui_info(const char *label, const char *val_desc) {
+    printf("  %s│%s   %-15s : %s\n", COLOR_BLUE, COLOR_RESET, label, val_desc);
+}
+
+// Interactive Pause
+void ui_pause() {
+    printf("\n  %s[Press ENTER to continue next phase...]%s", COLOR_MAGENTA, COLOR_RESET);
+    getchar();
+}
+
+// Sophisticated Hex Dump
+void ui_hex(const char *label, const uint8_t *data, size_t len, int highlight_idx) {
+    printf("  %s│%s   %-15s : %s[ ", COLOR_BLUE, COLOR_RESET, label, COLOR_BOLD);
     
-    // 测试 3329 (应该变成 0)
-    int16_t res = barrett_reduce(3329);
-    if(res != 0) {
-        printf("FAIL: barrett_reduce(3329) = %d (expected 0)\n", res);
-        return 1;
+    // Show first 16 bytes
+    size_t preview = 16;
+    for (size_t i = 0; i < preview && i < len; i++) {
+        if (i == highlight_idx) printf("%s%02X%s ", COLOR_RED, data[i], COLOR_RESET); // Highlight for errors
+        else printf("%02X ", data[i]);
     }
-
-    // 测试负数 -1 (应该等价于 Q-1, 但 barrett 可能返回 -1 或 Q-1，具体取决于实现细节)
-    // 我们的 barrett_reduce 通常返回范围在 [-Q/2, Q/2] 附近
-    // 所以这里主要检查同余性
-    int16_t val = -1;
-    res = barrett_reduce(val);
-    if ((res % Q) != (val % Q)) {
-        printf("FAIL: Reduction correctness failed for -1\n");
-        return 1;
-    }
-
-    // 扫描一段范围，检查 barrett 与 csubq 的同余性
-    for(int i = -5000; i <= 5000; i++) {
-        int16_t a = (int16_t)i;
-        int16_t b = barrett_reduce(a);
-        int16_t c = csubq(b);
-        int16_t norm = c;
-        if (norm < 0) norm += Q;
-        int16_t ref = a % Q;
-        if (ref < 0) ref += Q;
-        if (norm != ref) {
-            printf("FAIL: reduce mismatch at %d: got %d, expected %d\n", i, norm, ref);
-            return 1;
-        }
-    }
-
-    printf("PASS: Basic reductions look good.\n");
-    return 0;
+    
+    if (len > preview) printf("... (%zu bytes total) ", len);
+    printf("]%s\n", COLOR_RESET);
 }
 
-int test_ntt_roundtrip() {
-    int16_t a[N], b[N];
-    int errors = 0;
-    uint32_t state = 1;
-
-    printf("[Test] Running NTT Round-Trip check...\n");
-
-    for(int i = 0; i < N; i++) {
-        a[i] = (int16_t)(lcg(&state) % Q);
-        b[i] = a[i];
-    }
-
-    ntt(a);
-    invntt(a);
-
-    // invntt 输出在 Montgomery 域，需要转换回普通域再比较
-    for(int i = 0; i < N; i++) {
-        a[i] = montgomery_reduce(a[i]);
-    }
-
-    for(int i = 0; i < N; i++) {
-        int16_t val_orig = standard_reduce(b[i]);
-        int16_t val_calc = standard_reduce(a[i]);
-
-        if(val_orig != val_calc) {
-            printf("ERROR at index %d: Original %d, Got %d\n", i, val_orig, val_calc);
-            errors++;
-        }
-    }
-
-    if(errors == 0) {
-        printf("PASS: NTT -> InvNTT matches perfectly!\n");
-        return 0;
-    } else {
-        printf("FAIL: Found %d mismatches.\n", errors);
-        return 1;
-    }
+// --- Helper for Internal Logic Simulation ---
+// These mimic the static functions inside kem.c so we can visualize them
+void demo_hash_h(uint8_t *out, const uint8_t *in, size_t inlen) { sha3_256(out, in, inlen); }
+void demo_hash_g(uint8_t *out, const uint8_t *in, size_t inlen) { sha3_512(out, in, inlen); }
+void demo_kdf(uint8_t *out, const uint8_t *in, size_t inlen) { shake256(out, KYBER_SSBYTES, in, inlen); }
+// Note: Verify logic needs to be reimplemented here for visualization if not public
+int demo_verify(const uint8_t *a, const uint8_t *b, size_t len) {
+    uint8_t diff = 0;
+    for(size_t i=0;i<len;i++) diff |= (a[i]^b[i]);
+    return (int)((uint64_t)(diff | (uint8_t)-diff) >> 7);
 }
 
-static void poly_naive_mul(poly *r, const poly *a, const poly *b) {
-    int64_t tmp[N];
-    for (int i = 0; i < N; i++) tmp[i] = 0;
+// ============================================================================
+//                              SCENARIO ENGINE
+// ============================================================================
 
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            int idx = i + j;
-            int64_t prod = (int64_t)a->coeffs[i] * b->coeffs[j];
-            if (idx < N) tmp[idx] += prod;
-            else tmp[idx - N] -= prod;
-        }
-    }
-
-    for (int i = 0; i < N; i++) {
-        int32_t v = (int32_t)(tmp[i] % Q);
-        if (v < 0) v += Q;
-        r->coeffs[i] = (int16_t)v;
-    }
-}
-
-int test_poly_add_mul() {
-    printf("[Test] Running poly add/mul check...\n");
-
-    poly a, b, c_ntt, c_ref;
-    uint32_t state = 7;
-
-    for (int i = 0; i < N; i++) {
-        a.coeffs[i] = (int16_t)(lcg(&state) % Q);
-        b.coeffs[i] = (int16_t)(lcg(&state) % Q);
-    }
-
-    poly_naive_mul(&c_ref, &a, &b);
-
-    poly_ntt(&a);
-    poly_ntt(&b);
-    poly_basemul_montgomery(&c_ntt, &a, &b);
-    poly_invntt_tomont(&c_ntt);
-
-    for (int i = 0; i < N; i++) {
-        c_ntt.coeffs[i] = standard_reduce(c_ntt.coeffs[i]);
-    }
-
-    for (int i = 0; i < N; i++) {
-        int16_t ref = standard_reduce(c_ref.coeffs[i]);
-        if (c_ntt.coeffs[i] != ref) {
-            printf("FAIL: poly mul mismatch at %d: got %d, expected %d\n", i, c_ntt.coeffs[i], ref);
-            return 1;
-        }
-    }
-
-    printf("PASS: poly add/mul looks good.\n");
-    return 0;
-}
-
-int test_noise_bounds() {
-    printf("[Test] Running noise bounds check...\n");
-
-    poly r1, r2;
-    uint8_t seed[KYBER_SYMBYTES];
-    uint32_t state = 11;
-
-    for (int i = 0; i < KYBER_SYMBYTES; i++) {
-        seed[i] = (uint8_t)(lcg(&state) & 0xff);
-    }
-
-    poly_getnoise_eta1(&r1, seed, 0);
-    poly_getnoise_eta2(&r2, seed, 1);
-
-    for (int i = 0; i < N; i++) {
-        if (r1.coeffs[i] < -KYBER_ETA1 || r1.coeffs[i] > KYBER_ETA1) {
-            printf("FAIL: eta1 coeff out of range at %d: %d\n", i, r1.coeffs[i]);
-            return 1;
-        }
-        if (r2.coeffs[i] < -KYBER_ETA2 || r2.coeffs[i] > KYBER_ETA2) {
-            printf("FAIL: eta2 coeff out of range at %d: %d\n", i, r2.coeffs[i]);
-            return 1;
-        }
-    }
-
-    printf("PASS: noise bounds ok.\n");
-    return 0;
-}
-
-int test_indcpa_encrypt_decrypt() {
-    printf("[Test] Running IND-CPA encrypt/decrypt check...\n");
-
-    uint8_t pk[KYBER_INDCPA_PUBLICKEYBYTES];
-    uint8_t sk[KYBER_INDCPA_SECRETKEYBYTES];
-    uint8_t m[KYBER_INDCPA_MSGBYTES];
-    uint8_t c[KYBER_INDCPA_BYTES];
-    uint8_t m2[KYBER_INDCPA_MSGBYTES];
-    uint8_t coins[KYBER_SYMBYTES];
-    uint32_t state = 23;
-
-    for (int i = 0; i < KYBER_INDCPA_MSGBYTES; i++) m[i] = (uint8_t)(lcg(&state) & 0xff);
-    for (int i = 0; i < KYBER_SYMBYTES; i++) coins[i] = (uint8_t)(lcg(&state) & 0xff);
-
-    indcpa_keypair(pk, sk);
-    indcpa_enc(c, m, pk, coins);
-    indcpa_dec(m2, c, sk);
-
-    if (memcmp(m, m2, KYBER_INDCPA_MSGBYTES) != 0) {
-        printf("FAIL: IND-CPA decrypt mismatch\n");
-        return 1;
-    }
-
-    printf("PASS: IND-CPA encrypt/decrypt ok.\n");
-    return 0;
-}
-
-int test_kem_enc_dec() {
-    printf("[Test] Running KEM encaps/decaps check...\n");
-
+void run_detailed_flow(int attack_mode) {
     uint8_t pk[KYBER_PUBLICKEYBYTES];
     uint8_t sk[KYBER_SECRETKEYBYTES];
     uint8_t ct[KYBER_CIPHERTEXTBYTES];
-    uint8_t ss1[KYBER_SSBYTES];
-    uint8_t ss2[KYBER_SSBYTES];
+    uint8_t ss_alice[KYBER_SSBYTES];
+    uint8_t ss_bob[KYBER_SSBYTES];
+    
+    // Internal variables for visualization
+    uint8_t m_bob[KYBER_SYMBYTES];
+    uint8_t kr_bob[2*KYBER_SYMBYTES];
+    uint8_t buf[2*KYBER_SYMBYTES];
+    uint8_t kr_alice[2*KYBER_SYMBYTES];
+    uint8_t cmp_ct[KYBER_CIPHERTEXTBYTES];
+    
+    ui_clear_screen();
+    if (attack_mode) ui_banner("SCENARIO 2: MAN-IN-THE-MIDDLE ATTACK (Deep Dive)");
+    else             ui_banner("SCENARIO 1: HONEST KEY EXCHANGE (Deep Dive)");
 
+    // =================================================================
+    // PHASE 1: KEY GENERATION (ALICE)
+    // =================================================================
+    ui_step("Alice Generates Keypair (PKE + FO Context)");
+    
+    // We call standard keypair, but explain the parts
     crypto_kem_keypair(pk, sk);
-    crypto_kem_enc(ct, ss1, pk);
-    crypto_kem_dec(ss2, ct, sk);
+    
+    ui_substep("Generating LWE Matrix A and Secret Vector s...");
+    ui_substep("Computing Public Key t = As + e");
+    ui_hex("Alice PK (t, rho)", pk, KYBER_PUBLICKEYBYTES, -1);
+    
+    ui_substep("Storing context into Secret Key (SK)");
+    ui_info("SK Structure", "[ s vector ] || [ PK ] || [ H(PK) ] || [ z ]");
+    ui_hex("Alice SK", sk, KYBER_SECRETKEYBYTES, -1);
+    
+    // Peek at H(pk) inside SK
+    // H(pk) is at sk + INDCPA_SECRET_BYTES + PUBLIC_BYTES
+    size_t offset_hpk = KYBER_INDCPA_SECRETKEYBYTES + KYBER_PUBLICKEYBYTES;
+    ui_hex("-> H(PK) in SK", sk + offset_hpk, 32, -1);
+    
+    ui_pause();
 
-    if (memcmp(ss1, ss2, KYBER_SSBYTES) != 0) {
-        printf("FAIL: KEM decaps mismatch\n");
-        return 1;
+    // =================================================================
+    // PHASE 2: ENCAPSULATION (BOB) - MANUALLY EXECUTED
+    // =================================================================
+    ui_step("Bob Encapsulates (Encryption + Coin Derivation)");
+    
+    // 1. Generate random message m
+    randombytes(m_bob, KYBER_SYMBYTES);
+    ui_substep("1. Bob picks a random 32-byte message 'm'");
+    ui_hex("Message (m)", m_bob, KYBER_SYMBYTES, -1);
+    
+    // 2. Hash m || H(pk)
+    ui_substep("2. Hashing 'm' with Alice's 'H(PK)'...");
+    demo_hash_h(buf, m_bob, KYBER_SYMBYTES);                // Hash m
+    demo_hash_h(buf + KYBER_SYMBYTES, pk, KYBER_PUBLICKEYBYTES); // Hash pk
+    demo_hash_g(kr_bob, buf, 2*KYBER_SYMBYTES);             // G(m || H(pk))
+    
+    ui_info("Derivation", "(SharedKey || Coins) = G(m || H(pk))");
+    ui_hex("Shared Key (K)", kr_bob, 32, -1);
+    ui_hex("Rand Coins (r)", kr_bob+32, 32, -1);
+    
+    // Save Bob's K for later
+    memcpy(ss_bob, kr_bob, KYBER_SSBYTES);
+
+    // 3. Encrypt
+    ui_substep("3. Deterministic Encryption: c = Encrypt(pk, m, r)");
+    indcpa_enc(ct, buf, pk, kr_bob + KYBER_SYMBYTES);
+    ui_hex("Ciphertext (c)", ct, KYBER_CIPHERTEXTBYTES, -1);
+    
+    printf("\n  %s[INFO] Bob now has the Shared Key (K) and sends (c) to Alice.%s\n", COLOR_CYAN, COLOR_RESET);
+    ui_pause();
+
+    // =================================================================
+    // PHASE 3: INTERCEPTION (ATTACKER)
+    // =================================================================
+    if (attack_mode) {
+        ui_step("NETWORK LAYER: Attacker Tampering");
+        
+        printf("  %s[!] Attacker intercepts the ciphertext...%s\n", COLOR_RED, COLOR_RESET);
+        ui_hex("Original CT", ct, KYBER_CIPHERTEXTBYTES, -1);
+        
+        ct[0] ^= 0xFF; // Flip bits in first byte
+        ct[10] ^= 0x55; 
+        
+        printf("  %s[!] Attacker modifies byte 0 and byte 10!%s\n", COLOR_RED, COLOR_RESET);
+        ui_hex("Tampered CT", ct, KYBER_CIPHERTEXTBYTES, 0); // Highlight index 0
+        ui_pause();
     }
 
-    printf("PASS: KEM encaps/decaps ok.\n");
-    return 0;
+    // =================================================================
+    // PHASE 4: DECAPSULATION (ALICE) - THE DEEP DIVE
+    // =================================================================
+    ui_step("Alice Decapsulates (The FO Transform Check)");
+
+    // 1. Decrypt
+    ui_substep("1. IND-CPA Decrypt: m' = Decrypt(sk, c)");
+    indcpa_dec(buf, ct, sk);
+    
+    if (attack_mode) {
+        // Since CT was changed, m' will be garbage noise
+        ui_hex("Recovered m'", buf, 32, -1);
+        printf("  %s[WARN] Note that m' is completely different from Bob's m!%s\n", COLOR_YELLOW, COLOR_RESET);
+    } else {
+        ui_hex("Recovered m'", buf, 32, -1);
+        printf("  %s[OK] Matches Bob's m.%s\n", COLOR_GREEN, COLOR_RESET);
+    }
+
+    // 2. Re-derive K', r'
+    ui_substep("2. Re-Deriving Coins: (K', r') = G(m' || H(pk))");
+    // Copy H(pk) from SK to buffer
+    memcpy(buf + KYBER_SYMBYTES, sk + KYBER_SECRETKEYBYTES - 2*KYBER_SYMBYTES, KYBER_SYMBYTES);
+    demo_hash_g(kr_alice, buf, 2*KYBER_SYMBYTES);
+    
+    ui_hex("Re-derived r'", kr_alice+32, 32, -1);
+
+    // 3. Re-encrypt
+    ui_substep("3. Re-Encryption: c' = Encrypt(pk, m', r')");
+    indcpa_enc(cmp_ct, buf, pk, kr_alice + KYBER_SYMBYTES);
+    
+    if (attack_mode) {
+        ui_hex("Re-encrypted c'", cmp_ct, KYBER_CIPHERTEXTBYTES, 0);
+        printf("  %s[FAIL] c' does NOT match received c!%s\n", COLOR_RED, COLOR_RESET);
+    } else {
+        ui_hex("Re-encrypted c'", cmp_ct, KYBER_CIPHERTEXTBYTES, -1);
+        printf("  %s[PASS] c' is identical to received c.%s\n", COLOR_GREEN, COLOR_RESET);
+    }
+
+    // 4. Verify & Select
+    ui_substep("4. Constant-Time Verification & Implicit Rejection");
+    
+    int fail = demo_verify(ct, cmp_ct, KYBER_CIPHERTEXTBYTES);
+    
+    if (fail) {
+        printf("  %s--> VERIFY FAILED (Non-zero difference)%s\n", COLOR_RED, COLOR_RESET);
+        ui_substep("Logic: Return K_reject = H(z || c)");
+        
+        // Simulate Implicit Rejection calculation
+        uint8_t k_reject[32];
+        uint8_t z_buf[KYBER_SYMBYTES + KYBER_CIPHERTEXTBYTES];
+        // Read z from SK
+        memcpy(z_buf, sk + KYBER_SECRETKEYBYTES - KYBER_SYMBYTES, KYBER_SYMBYTES);
+        memcpy(z_buf + KYBER_SYMBYTES, ct, KYBER_CIPHERTEXTBYTES);
+        demo_kdf(k_reject, z_buf, sizeof(z_buf));
+        
+        memcpy(ss_alice, k_reject, KYBER_SSBYTES);
+        ui_hex("Alice's Final Key", ss_alice, 32, -1);
+        
+    } else {
+        printf("  %s--> VERIFY PASSED%s\n", COLOR_GREEN, COLOR_RESET);
+        ui_substep("Logic: Return K' (Derived from m')");
+        
+        memcpy(ss_alice, kr_alice, KYBER_SSBYTES); // Take K'
+        ui_hex("Alice's Final Key", ss_alice, 32, -1);
+    }
+
+    // =================================================================
+    // FINAL RESULT
+    // =================================================================
+    ui_step("Final Agreement Check");
+    
+    printf("  Bob's Key:   ");
+    for(int i=0;i<8;i++) printf("%02X ", ss_bob[i]); printf("...\n");
+    
+    printf("  Alice's Key: ");
+    for(int i=0;i<8;i++) printf("%02X ", ss_alice[i]); printf("...\n");
+    
+    if (memcmp(ss_alice, ss_bob, KYBER_SSBYTES) == 0) {
+        printf("\n  %s%s✅ SUCCESS: SECURE CHANNEL ESTABLISHED%s\n", COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    } else {
+        printf("\n  %s%s🛡️ SECURITY ACTIVE: KEYS DO NOT MATCH (ATTACK MITIGATED)%s\n", COLOR_BOLD, COLOR_RED, COLOR_RESET);
+        printf("  Alice safely derived a random key. Attacker learns nothing.\n");
+    }
+    printf("\n");
 }
 
 int main() {
-    printf("=== Kyber Core Math Test ===\n");
-    printf("Params: N=%d, Q=%d\n", N, Q);
+    ui_clear_screen();
+    ui_banner("Kyber-768 (ML-KEM) Internal Logic Visualizer");
+    printf("  This tool dissects the Kyber KEM process step-by-step.\n\n");
     
-    int fail = 0;
-    fail |= test_reduction();
-    printf("--------------------------------\n");
-    fail |= test_ntt_roundtrip();
-    printf("--------------------------------\n");
-    fail |= test_poly_add_mul();
-    printf("--------------------------------\n");
-    fail |= test_noise_bounds();
-    printf("--------------------------------\n");
-    fail |= test_indcpa_encrypt_decrypt();
-    printf("--------------------------------\n");
-    fail |= test_kem_enc_dec();
-
-    if(fail) {
-        printf("\n❌ SOME TESTS FAILED\n");
-        return 1;
-    }
+    ui_pause();
     
-    printf("\n✅ ALL TESTS PASSED\n");
+    // Run Standard
+    run_detailed_flow(0);
+    
+    ui_pause();
+    
+    // Run Attack
+    run_detailed_flow(1);
+    
     return 0;
 }

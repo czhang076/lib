@@ -2,9 +2,9 @@ CC = /usr/bin/gcc
 CFLAGS = -Wall -Wextra -O3 -fomit-frame-pointer
 
 # 目标文件列表
-SOURCES = reduce.c ntt.c poly.c polyvec.c fips202.c symmetric.c cbd.c randombytes.c indcpa.c kem.c test_kyber.c
-HEADERS = params.h reduce.h ntt.h poly.h polyvec.h fips202.h symmetric.h cbd.h randombytes.h indcpa.h kem.h
-OBJECTS = reduce.o ntt.o poly.o polyvec.o fips202.o symmetric.o cbd.o randombytes.o indcpa.o kem.o test_kyber.o
+SOURCES = reduce.c ntt.c poly.c polyvec.c fips202.c symmetric.c cbd.c randombytes.c indcpa.c verify.c kem.c test_kyber.c
+HEADERS = params.h reduce.h ntt.h poly.h polyvec.h fips202.h symmetric.h cbd.h randombytes.h indcpa.h verify.h kem.h
+OBJECTS = reduce.o ntt.o poly.o polyvec.o fips202.o symmetric.o cbd.o randombytes.o indcpa.o verify.o kem.o test_kyber.o
 
 # 默认目标
 all: test_kyber
