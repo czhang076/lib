@@ -10,10 +10,10 @@ public class Constants {
     public static final int OP_DEPOSIT = 3;
     public static final int OP_MONITOR = 4;
     public static final int OP_CALLBACK = 5;
-    
-
+    public static final int OP_WITHDRAW = 6;
     public static final int OP_CHECK_BALANCE = 7;
     public static final int OP_TRANSFER = 8;
+    public static final int OP_GET_ACCOUNT_INFO = 9;
 
     public static final int STATUS_OK = 200;
     public static final int STATUS_ERROR = 500;

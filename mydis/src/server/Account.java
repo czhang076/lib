@@ -1,14 +1,16 @@
 package server;
 
+import common.CurrencyType;
+
 public class Account {
     private int accountNumber;
     private String name;
     private String password;
-    private String currencyType;
+    private CurrencyType currencyType;
     private double balance;
     private long version = 0;
 
-    public Account(int accountNumber, String name, String password, String currencyType, double balance) {
+    public Account(int accountNumber, String name, String password, CurrencyType currencyType, double balance) {
         this.accountNumber = accountNumber;
         this.name = name;
         this.password = password;
@@ -33,7 +35,7 @@ public class Account {
         return password;
     }
 
-    public String getCurrencyType() {
+    public CurrencyType getCurrencyType() {
         return currencyType;
     }
 
