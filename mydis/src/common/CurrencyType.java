@@ -1,8 +1,11 @@
 package common;
 
 public enum CurrencyType {
+    USD,
+    RMB,
     SGD,
-    USD;
+    JPY,
+    BPD;
 
     public static CurrencyType fromString(String value) throws IllegalArgumentException {
         if (value == null) {

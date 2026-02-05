@@ -34,16 +34,31 @@ public class Marshaller {
     public static void packString(ByteBuffer buf, String text) {
         if (text == null) text = "";
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        buf.putInt(bytes.length);
+        buf.putLong((long)bytes.length);
         buf.put(bytes);
     }
 
     public static String unpackString(ByteBuffer buf) {
-        int length = buf.getInt();
-        byte[] bytes = new byte[length];
+        long len = buf.getLong();
+        if (len <= 0) {
+            return "";
+        }
+        if (len > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("String length too large: " + len);
+        }
+        byte[] bytes = new byte[(int) len];
         buf.get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
     }
+
+    public static void packFloat(ByteBuffer buf, float value) {
+        buf.putFloat(value);
+    }
+
+    public static float unpackFloat(ByteBuffer buf) {
+        return buf.getFloat();
+    }
+
 
     // === Legacy Support for string-only packing (for tests) ===
     // Keeps the old method to avoid breaking existing tests immediately, 
@@ -57,27 +72,5 @@ public class Marshaller {
         buf.putInt(bytes.length);
         buf.put(bytes);
         return buf.array();
-    }
-
-    
-    // For testing
-    public static void main(String[] args) {
-        String original = "Hello World!";
-        System.out.println("Original: " + original);
-
-        // Marshall
-        byte[] packed = packString(original);
-        System.out.println("Packed bytes length: " + packed.length);
-
-        // Unmarshall
-        ByteBuffer buf = ByteBuffer.wrap(packed);
-        String unpacked = unpackString(buf);
-        System.out.println("Unpacked: " + unpacked);
-
-        if (original.equals(unpacked)) {
-            System.out.println("SUCCESS: Marshalling/Unmarshalling works.");
-        } else {
-            System.out.println("FAILURE: Strings do not match.");
-        }
     }
 }

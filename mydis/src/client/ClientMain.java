@@ -8,6 +8,8 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Scanner;
 import java.util.Random;
@@ -43,22 +45,22 @@ public class ClientMain {
         
         try (DatagramSocket socket = new DatagramSocket();
              Scanner scanner = new Scanner(System.in)) {
-            
+
             InetAddress serverAddress = InetAddress.getByName(serverIp);
 
             while (true) {
                 System.out.println("\n--- Bank Client Menu ---");
                 System.out.println("1. Open Account");
                 System.out.println("2. Close Account");
-                System.out.println("3. Deposit");
-                System.out.println("4. Withdraw");
-                System.out.println("5. Check Balance");
+                System.out.println("3. Check Balance");
+                System.out.println("4. Deposit");
+                System.out.println("5. Withdraw");
                 System.out.println("6. Transfer");
-                System.out.println("7. Monitor Updates");
-                System.out.println("8. Account Info");
+                System.out.println("7. Exchange");
+                System.out.println("8. Monitor");
                 System.out.println("0. Exit");
                 System.out.print("Select an option: ");
-                
+
                 String input = scanner.nextLine();
                 int choice = -1;
                 try {
@@ -69,11 +71,9 @@ public class ClientMain {
 
                 if (choice == 0) break;
 
-                ByteBuffer reqBuf = ByteBuffer.allocate(Constants.BUFFER_SIZE);
                 int reqID = reqIdCounter++;
-                Marshaller.packInt(reqBuf, 0); // Length placeholder
-                Marshaller.packInt(reqBuf, reqID);
-                int monitorIntervalSeconds = -1;
+                ByteBuffer payloadBuf = ByteBuffer.allocate(Constants.BUFFER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+                int opCode;
 
                 switch (choice) {
                     case 1: // Open Account
@@ -83,13 +83,13 @@ public class ClientMain {
                         String pwd = scanner.nextLine();
                         String curr = readCurrency(scanner);
                         System.out.print("Enter Initial Balance: ");
-                        double bal = Double.parseDouble(scanner.nextLine());
+                        float bal = Float.parseFloat(scanner.nextLine());
 
-                        Marshaller.packInt(reqBuf, Constants.OP_OPEN_ACCOUNT);
-                        Marshaller.packString(reqBuf, name);
-                        Marshaller.packString(reqBuf, pwd);
-                        Marshaller.packString(reqBuf, curr);
-                        Marshaller.packDouble(reqBuf, bal);
+                        opCode = Constants.OP_OPEN_ACCOUNT;
+                        Marshaller.packString(payloadBuf, name);
+                        Marshaller.packString(payloadBuf, pwd);
+                        Marshaller.packFloat(payloadBuf, bal);
+                        Marshaller.packString(payloadBuf, curr);
                         break;
 
                     case 2: // Close Account
@@ -100,32 +100,48 @@ public class ClientMain {
                         System.out.print("Enter Password: ");
                         String closePwd = scanner.nextLine();
 
-                        Marshaller.packInt(reqBuf, Constants.OP_CLOSE_ACCOUNT);
-                        Marshaller.packInt(reqBuf, closeId);
-                        Marshaller.packString(reqBuf, closeName);
-                        Marshaller.packString(reqBuf, closePwd);
+                        opCode = Constants.OP_CLOSE_ACCOUNT;
+                        Marshaller.packInt(payloadBuf, closeId);
+                        Marshaller.packString(payloadBuf, closeName);
+                        Marshaller.packString(payloadBuf, closePwd);
                         break;
 
-                    case 3: // Deposit
+                    case 3: // Check Balance
                         System.out.print("Enter Account ID: ");
-                        int accId = Integer.parseInt(scanner.nextLine());
+                        int balId = Integer.parseInt(scanner.nextLine());
+                        System.out.print("Enter Name: ");
+                        String balName = scanner.nextLine();
+                        System.out.print("Enter Password: ");
+                        String balPwd = scanner.nextLine();
+                        String balCurr = readCurrency(scanner);
+
+                        opCode = Constants.OP_CHECK_BALANCE;
+                        Marshaller.packInt(payloadBuf, balId);
+                        Marshaller.packString(payloadBuf, balName);
+                        Marshaller.packString(payloadBuf, balPwd);
+                        Marshaller.packString(payloadBuf, balCurr);
+                        break;
+
+                    case 4: // Deposit
+                        System.out.print("Enter Account ID: ");
+                        int depId = Integer.parseInt(scanner.nextLine());
                         System.out.print("Enter Name: ");
                         String depName = scanner.nextLine();
                         System.out.print("Enter Password: ");
                         String depPwd = scanner.nextLine();
                         String depCurr = readCurrency(scanner);
                         System.out.print("Enter Amount: ");
-                        double amt = Double.parseDouble(scanner.nextLine());
+                        float depAmt = Float.parseFloat(scanner.nextLine());
 
-                        Marshaller.packInt(reqBuf, Constants.OP_DEPOSIT);
-                        Marshaller.packInt(reqBuf, accId);
-                        Marshaller.packString(reqBuf, depName);
-                        Marshaller.packString(reqBuf, depPwd);
-                        Marshaller.packString(reqBuf, depCurr);
-                        Marshaller.packDouble(reqBuf, amt);
+                        opCode = Constants.OP_DEPOSIT;
+                        Marshaller.packInt(payloadBuf, depId);
+                        Marshaller.packString(payloadBuf, depName);
+                        Marshaller.packString(payloadBuf, depPwd);
+                        Marshaller.packString(payloadBuf, depCurr);
+                        Marshaller.packFloat(payloadBuf, depAmt);
                         break;
 
-                    case 4: // Withdraw
+                    case 5: // Withdraw
                         System.out.print("Enter Account ID: ");
                         int wId = Integer.parseInt(scanner.nextLine());
                         System.out.print("Enter Name: ");
@@ -134,70 +150,67 @@ public class ClientMain {
                         String wPwd = scanner.nextLine();
                         String wCurr = readCurrency(scanner);
                         System.out.print("Enter Amount: ");
-                        double wAmt = Double.parseDouble(scanner.nextLine());
+                        float wAmt = Float.parseFloat(scanner.nextLine());
 
-                        Marshaller.packInt(reqBuf, Constants.OP_WITHDRAW);
-                        Marshaller.packInt(reqBuf, wId);
-                        Marshaller.packString(reqBuf, wName);
-                        Marshaller.packString(reqBuf, wPwd);
-                        Marshaller.packString(reqBuf, wCurr);
-                        Marshaller.packDouble(reqBuf, wAmt);
-                        break;
-
-                    case 5: // Balance
-                        System.out.print("Enter Account ID: ");
-                        int balId = Integer.parseInt(scanner.nextLine());
-                        System.out.print("Enter Name: ");
-                        String balName = scanner.nextLine();
-                        System.out.print("Enter Password: ");
-                        String balPwd = scanner.nextLine();
-
-                        Marshaller.packInt(reqBuf, Constants.OP_CHECK_BALANCE);
-                        Marshaller.packInt(reqBuf, balId);
-                        Marshaller.packString(reqBuf, balName);
-                        Marshaller.packString(reqBuf, balPwd);
+                        opCode = Constants.OP_WITHDRAW;
+                        Marshaller.packInt(payloadBuf, wId);
+                        Marshaller.packString(payloadBuf, wName);
+                        Marshaller.packString(payloadBuf, wPwd);
+                        Marshaller.packString(payloadBuf, wCurr);
+                        Marshaller.packFloat(payloadBuf, wAmt);
                         break;
 
                     case 6: // Transfer
-                        System.out.print("Enter From Account ID: ");
-                        int fromId = Integer.parseInt(scanner.nextLine());
+                        System.out.print("Enter Sender Account ID: ");
+                        int senderId = Integer.parseInt(scanner.nextLine());
                         System.out.print("Enter Name: ");
-                        String fromName = scanner.nextLine();
+                        String senderName = scanner.nextLine();
                         System.out.print("Enter Password: ");
-                        String fromPwd = scanner.nextLine();
-                        System.out.print("Enter To Account ID: ");
-                        int toId = Integer.parseInt(scanner.nextLine());
+                        String senderPwd = scanner.nextLine();
+                        String tCurr = readCurrency(scanner);
                         System.out.print("Enter Amount: ");
-                        double tAmt = Double.parseDouble(scanner.nextLine());
+                        float tAmt = Float.parseFloat(scanner.nextLine());
+                        System.out.print("Enter Receiver Account ID: ");
+                        int receiverId = Integer.parseInt(scanner.nextLine());
 
-                        Marshaller.packInt(reqBuf, Constants.OP_TRANSFER);
-                        Marshaller.packInt(reqBuf, fromId);
-                        Marshaller.packString(reqBuf, fromName);
-                        Marshaller.packString(reqBuf, fromPwd);
-                        Marshaller.packInt(reqBuf, toId);
-                        Marshaller.packDouble(reqBuf, tAmt);
+                        opCode = Constants.OP_TRANSFER;
+                        Marshaller.packInt(payloadBuf, senderId);
+                        Marshaller.packString(payloadBuf, senderName);
+                        Marshaller.packString(payloadBuf, senderPwd);
+                        Marshaller.packString(payloadBuf, tCurr);
+                        Marshaller.packFloat(payloadBuf, tAmt);
+                        Marshaller.packInt(payloadBuf, receiverId);
                         break;
 
-                    case 7: // Monitor
-                        System.out.print("Enter Monitor Interval (seconds): ");
-                        int interval = Integer.parseInt(scanner.nextLine());
-                        monitorIntervalSeconds = interval;
-                        Marshaller.packInt(reqBuf, Constants.OP_MONITOR);
-                        Marshaller.packInt(reqBuf, interval);
-                        break;
-
-                    case 8: // Account Info
+                    case 7: // Exchange
                         System.out.print("Enter Account ID: ");
-                        int infoId = Integer.parseInt(scanner.nextLine());
+                        int exId = Integer.parseInt(scanner.nextLine());
                         System.out.print("Enter Name: ");
-                        String infoName = scanner.nextLine();
+                        String exName = scanner.nextLine();
                         System.out.print("Enter Password: ");
-                        String infoPwd = scanner.nextLine();
+                        String exPwd = scanner.nextLine();
+                        System.out.print("Enter From Currency: ");
+                        String fromCurr = scanner.nextLine().trim().toUpperCase();
+                        System.out.print("Enter To Currency: ");
+                        String toCurr = scanner.nextLine().trim().toUpperCase();
+                        System.out.print("Enter Amount (target currency): ");
+                        float exAmt = Float.parseFloat(scanner.nextLine());
 
-                        Marshaller.packInt(reqBuf, Constants.OP_GET_ACCOUNT_INFO);
-                        Marshaller.packInt(reqBuf, infoId);
-                        Marshaller.packString(reqBuf, infoName);
-                        Marshaller.packString(reqBuf, infoPwd);
+                        opCode = Constants.OP_EXCHANGE;
+                        Marshaller.packInt(payloadBuf, exId);
+                        Marshaller.packString(payloadBuf, exName);
+                        Marshaller.packString(payloadBuf, exPwd);
+                        Marshaller.packString(payloadBuf, fromCurr);
+                        Marshaller.packString(payloadBuf, toCurr);
+                        Marshaller.packFloat(payloadBuf, exAmt);
+                        break;
+
+                    case 8: // Monitor
+                        System.out.print("Enter Duration (milliseconds): ");
+                        long durationMillis = Long.parseLong(scanner.nextLine());
+
+                        opCode = Constants.OP_MONITOR;
+                        Marshaller.packLong(payloadBuf, durationMillis);
                         break;
 
                     default:
@@ -205,142 +218,83 @@ public class ClientMain {
                         continue;
                 }
 
-                reqBuf.putInt(0, reqBuf.position());
-                byte[] reqData = Arrays.copyOf(reqBuf.array(), reqBuf.position());
-                
-                // === Send with Retry (At-least-once) ===
-                int maxRetries = enableRetry ? 5 : 1;
-                int retries = 0;
-                boolean received = false;
-                DatagramPacket replyPacket = null;
-                
-                socket.setSoTimeout(1000); // 1.0 second timeout
+                ByteBuffer reqBuf = ByteBuffer.allocate(8 + Constants.BUFFER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+                reqBuf.putInt(reqID);
+                reqBuf.putInt(opCode);
+                reqBuf.put(payloadBuf.array());
+                byte[] reqData = reqBuf.array();
 
-                while (retries < maxRetries && !received) {
-                    try {
-                        NetworkUtil.send(socket, serverAddress, serverPort, reqData);
-                        
-                        // Receive
-                        System.out.println("Waiting for reply (Attempt " + (retries + 1) + ")...");
-                        replyPacket = NetworkUtil.receive(socket);
-                        received = true; // Success!
-
-                    } catch (java.net.SocketTimeoutException e) {
-                        retries++;
-                        System.out.println("Timeout! Retrying (" + retries + "/" + maxRetries + ")...");
-                    }
+                DatagramPacket replyPacket = sendWithRetry(socket, serverAddress, serverPort, reqData, enableRetry);
+                if (replyPacket == null) {
+                    continue;
                 }
 
-                if (!received) {
-                    System.out.println("Error: No response from server after " + maxRetries + " attempts.");
-                    continue; // Skip processing response
-                }
-                
                 byte[] resData = Arrays.copyOf(replyPacket.getData(), replyPacket.getLength());
-                ByteBuffer resBuf = ByteBuffer.wrap(resData);
-
-                int length = Marshaller.unpackInt(resBuf);
-                if (length != resData.length) {
+                if (resData.length < 8) {
                     System.out.println("Invalid response length. Ignoring.");
                     continue;
                 }
 
-                int resReqID = Marshaller.unpackInt(resBuf);
-                int status = Marshaller.unpackInt(resBuf);
-                String msg = Marshaller.unpackString(resBuf);
-
-                System.out.println("Reply [ReqID=" + resReqID + ", Status=" + status + "]: " + msg);
-
-                if (status == Constants.STATUS_OK) {
-                    // Extract payload if needed
-                    if (choice == 1) {
-                         // Open Account returns ID
-                         int newId = Marshaller.unpackInt(resBuf);
-                         System.out.println(">> Created Account ID: " + newId);
-                    } else if (choice == 3 || choice == 4 || choice == 5 || choice == 6) {
-                         // Deposit/Withdraw/Balance/Transfer returns double balance
-                         double newBal = Marshaller.unpackDouble(resBuf);
-                         System.out.println(">> Balance: " + newBal);
-                    } else if (choice == 7) {
-                        System.out.println("Entering monitor mode...");
-                        enterMonitorLoop(socket, monitorIntervalSeconds);
-                    } else if (choice == 8) {
-                        int id = Marshaller.unpackInt(resBuf);
-                        String name = Marshaller.unpackString(resBuf);
-                        String curr = Marshaller.unpackString(resBuf);
-                        double bal = Marshaller.unpackDouble(resBuf);
-                        long ver = Marshaller.unpackLong(resBuf);
-                        System.out.println(">> Account: ID=" + id + ", Name=" + name + ", Currency=" + curr + ", Balance=" + bal + ", Version=" + ver);
-                    }
-                }
+                ByteBuffer resBuf = ByteBuffer.wrap(resData).order(ByteOrder.LITTLE_ENDIAN);
+                int resId = resBuf.getInt();
+                int status = resBuf.getInt();
+                byte[] payloadBytes = new byte[Math.min(Constants.BUFFER_SIZE, resData.length - 8)];
+                resBuf.get(payloadBytes);
+                String msg = decodeNullTerminated(payloadBytes);
+                System.out.println("Reply [ReqID=" + resId + ", Status=" + status + "]: " + msg);
             }
-            
+
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static void enterMonitorLoop(DatagramSocket socket, int intervalSeconds) {
-        System.out.println("--- Entered Monitor Mode (Interval: " + intervalSeconds + "s) ---");
-        long localVersion = 0;
-        long endTime = System.currentTimeMillis() + (intervalSeconds * 1000L);
-        try {
-            socket.setSoTimeout(1000); // Poll every second to check interval
-            while (System.currentTimeMillis() < endTime) {
-                try {
-                    DatagramPacket packet = NetworkUtil.receive(socket);
-                    byte[] data = Arrays.copyOf(packet.getData(), packet.getLength());
-                    ByteBuffer buf = ByteBuffer.wrap(data);
 
-                    if (data.length < 12) {
-                        continue;
-                    }
+    private static DatagramPacket sendWithRetry(DatagramSocket socket, InetAddress serverAddress, int serverPort, byte[] reqData, boolean enableRetry) throws Exception {
+        int retries = 0;
+        DatagramPacket replyPacket = null;
 
-                    int length = Marshaller.unpackInt(buf);
-                    if (length != data.length) {
-                        continue;
-                    }
+        socket.setSoTimeout(1000); // 1.0 second timeout
+        long startTime = System.currentTimeMillis();
 
-                    int reqID = Marshaller.unpackInt(buf);
-                    int opCode = Marshaller.unpackInt(buf);
-
-                    if (opCode == Constants.OP_CALLBACK) {
-                        long serverVersion = Marshaller.unpackLong(buf);
-                        int accountId = Marshaller.unpackInt(buf);
-                        String name = Marshaller.unpackString(buf);
-                        String currency = Marshaller.unpackString(buf);
-                        double balance = Marshaller.unpackDouble(buf);
-
-                        if (serverVersion > localVersion) {
-                            System.out.println("Update Received: ID=" + accountId + ", Name=" + name + ", Currency=" + currency + ", Balance=" + balance + ", Version=" + serverVersion);
-                            localVersion = serverVersion;
-                        }
-                    }
-                } catch (java.net.SocketTimeoutException e) {
-                    // loop to check interval
-                }
-            }
-            System.out.println("--- Monitor interval ended ---");
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
+        while (true) {
             try {
-                socket.setSoTimeout(1000);
-            } catch (Exception e) {
-                // ignore
+                NetworkUtil.send(socket, serverAddress, serverPort, reqData);
+                System.out.println("Waiting for reply (Attempt " + (retries + 1) + ")...");
+                replyPacket = NetworkUtil.receive(socket);
+                return replyPacket;
+            } catch (java.net.SocketTimeoutException e) {
+                retries++;
+                if (!enableRetry) {
+                    System.out.println("Error: No response from server.");
+                    return null;
+                }
+                if (System.currentTimeMillis() - startTime >= Constants.RETRY_TIMEOUT_MS) {
+                    System.out.println("Error: No response from server within retry timeout.");
+                    return null;
+                }
+                System.out.println("Timeout! Retrying (" + retries + ")...");
             }
         }
     }
 
     private static String readCurrency(Scanner scanner) {
         while (true) {
-            System.out.print("Enter Currency (SGD/USD): ");
+            System.out.print("Enter Currency (USD/RMB/SGD/JPY/BPD): ");
             String curr = scanner.nextLine();
             String norm = curr.trim().toUpperCase();
-            if ("SGD".equals(norm) || "USD".equals(norm)) {
+            if ("USD".equals(norm) || "RMB".equals(norm) || "SGD".equals(norm) || "JPY".equals(norm) || "BPD".equals(norm)) {
                 return norm;
             }
-            System.out.println("Invalid currency. Allowed values: SGD or USD.");
+            System.out.println("Invalid currency. Allowed values: USD, RMB, SGD, JPY, BPD.");
         }
+    }
+
+    private static String decodeNullTerminated(byte[] payloadBytes) {
+        int end = 0;
+        while (end < payloadBytes.length && payloadBytes[end] != 0) {
+            end++;
+        }
+        return new String(payloadBytes, 0, end, StandardCharsets.UTF_8).trim();
     }
 }
