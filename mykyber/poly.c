@@ -35,51 +35,11 @@ void poly_sub(poly *r, const poly *a, const poly *b) {
 }
 
 void poly_compress(uint8_t r[KYBER_POLYCOMPRESSEDBYTES], const poly *a) {
-#if (KYBER_POLYCOMPRESSEDBYTES == 128)
-  unsigned int i, j;
-  int16_t u;
-  uint32_t d0;
-  uint8_t t[8];
-
-  for (i = 0; i < KYBER_N / 8; i++) {
-    for (j = 0; j < 8; j++) {
-      u = a->coeffs[8 * i + j];
-      u += (u >> 15) & KYBER_Q;
-      d0 = (uint32_t)u << 4;
-      d0 += 1665;
-      d0 *= 80635;
-      d0 >>= 28;
-      t[j] = d0 & 0x0f;
-    }
-
-    r[0] = (uint8_t)(t[0] | (t[1] << 4));
-    r[1] = (uint8_t)(t[2] | (t[3] << 4));
-    r[2] = (uint8_t)(t[4] | (t[5] << 4));
-    r[3] = (uint8_t)(t[6] | (t[7] << 4));
-    r += 4;
-  }
-#else
-#error "Unsupported KYBER_POLYCOMPRESSEDBYTES"
-#endif
+  poly_tobytes(r, a);
 }
 
 void poly_decompress(poly *r, const uint8_t a[KYBER_POLYCOMPRESSEDBYTES]) {
-#if (KYBER_POLYCOMPRESSEDBYTES == 128)
-  unsigned int i;
-  for (i = 0; i < KYBER_N / 8; i++) {
-    r->coeffs[8 * i + 0] = (int16_t)(((a[0] & 0x0f) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 1] = (int16_t)(((a[0] >> 4) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 2] = (int16_t)(((a[1] & 0x0f) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 3] = (int16_t)(((a[1] >> 4) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 4] = (int16_t)(((a[2] & 0x0f) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 5] = (int16_t)(((a[2] >> 4) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 6] = (int16_t)(((a[3] & 0x0f) * KYBER_Q + 8) >> 4);
-    r->coeffs[8 * i + 7] = (int16_t)(((a[3] >> 4) * KYBER_Q + 8) >> 4);
-    a += 4;
-  }
-#else
-#error "Unsupported KYBER_POLYCOMPRESSEDBYTES"
-#endif
+  poly_frombytes(r, a);
 }
 
 void poly_tobytes(uint8_t r[KYBER_POLYBYTES], const poly *a) {
@@ -152,26 +112,31 @@ void poly_getnoise_eta2(poly *r, const uint8_t seed[KYBER_SYMBYTES], uint8_t non
 }
 
 void poly_ntt(poly *r) {
-  ntt(r->coeffs);
-  poly_reduce(r);
+  (void)r;
 }
 
 void poly_invntt_tomont(poly *r) {
-  invntt(r->coeffs);
+  (void)r;
+}
+
+void poly_mul_naive(poly *r, const poly *a, const poly *b) {
+  unsigned int i, j;
+  int32_t res[2 * KYBER_N] = {0};
+
+  for(i = 0; i < KYBER_N; i++) {
+    for(j = 0; j < KYBER_N; j++) {
+       res[i + j] = (res[i+j] + (int32_t)a->coeffs[i] * b->coeffs[j]) % KYBER_Q;
+    }
+  }
+  for(i = 0; i < KYBER_N; i++) {
+     r->coeffs[i] = (int16_t)((res[i] - res[i + KYBER_N] + KYBER_Q) % KYBER_Q);
+  }
 }
 
 void poly_basemul_montgomery(poly *r, const poly *a, const poly *b) {
-  unsigned int i;
-  for (i = 0; i < KYBER_N/4; i++) {
-    basemul(&r->coeffs[4*i], &a->coeffs[4*i], &b->coeffs[4*i], zetas[64 + i]);
-    basemul(&r->coeffs[4*i+2], &a->coeffs[4*i+2], &b->coeffs[4*i+2], -zetas[64 + i]);
-  }
+  poly_mul_naive(r, a, b);
 }
 
 void poly_tomont(poly *r) {
-  unsigned int i;
-  const int16_t f = (1ULL << 32) % KYBER_Q;
-  for (i = 0; i < KYBER_N; i++) {
-    r->coeffs[i] = montgomery_reduce((int32_t)r->coeffs[i] * f);
-  }
+  (void)r;
 }

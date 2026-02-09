@@ -4,51 +4,11 @@
 #include "poly.h"
 
 void polyvec_compress(uint8_t r[KYBER_POLYVECCOMPRESSEDBYTES], const polyvec *a) {
-  unsigned int i, j, k;
-  int16_t u;
-  uint32_t d0;
-  uint16_t t[4];
-
-  for (i = 0; i < KYBER_K; i++) {
-    for (j = 0; j < KYBER_N / 4; j++) {
-      for (k = 0; k < 4; k++) {
-        u = a->vec[i].coeffs[4 * j + k];
-        u += (u >> 15) & KYBER_Q;
-        d0 = (uint32_t)u << 10;
-        d0 += KYBER_Q / 2;
-        d0 /= KYBER_Q;
-        t[k] = d0 & 0x3ff;
-      }
-
-      r[0] = (uint8_t)(t[0] & 0xff);
-      r[1] = (uint8_t)((t[0] >> 8) | (t[1] << 2));
-      r[2] = (uint8_t)((t[1] >> 6) | (t[2] << 4));
-      r[3] = (uint8_t)((t[2] >> 4) | (t[3] << 6));
-      r[4] = (uint8_t)(t[3] >> 2);
-      r += 5;
-    }
-  }
+  polyvec_tobytes(r, a);
 }
 
 void polyvec_decompress(polyvec *r, const uint8_t a[KYBER_POLYVECCOMPRESSEDBYTES]) {
-  unsigned int i, j;
-  uint16_t t[4];
-
-  for (i = 0; i < KYBER_K; i++) {
-    for (j = 0; j < KYBER_N / 4; j++) {
-      t[0] = (uint16_t)(a[0] | ((uint16_t)a[1] << 8)) & 0x3ff;
-      t[1] = (uint16_t)((a[1] >> 2) | ((uint16_t)a[2] << 6)) & 0x3ff;
-      t[2] = (uint16_t)((a[2] >> 4) | ((uint16_t)a[3] << 4)) & 0x3ff;
-      t[3] = (uint16_t)((a[3] >> 6) | ((uint16_t)a[4] << 2)) & 0x3ff;
-
-      r->vec[i].coeffs[4 * j + 0] = (int16_t)(((uint32_t)t[0] * KYBER_Q + 512) >> 10);
-      r->vec[i].coeffs[4 * j + 1] = (int16_t)(((uint32_t)t[1] * KYBER_Q + 512) >> 10);
-      r->vec[i].coeffs[4 * j + 2] = (int16_t)(((uint32_t)t[2] * KYBER_Q + 512) >> 10);
-      r->vec[i].coeffs[4 * j + 3] = (int16_t)(((uint32_t)t[3] * KYBER_Q + 512) >> 10);
-
-      a += 5;
-    }
-  }
+  polyvec_frombytes(r, a);
 }
 
 void polyvec_tobytes(uint8_t r[KYBER_POLYVECBYTES], const polyvec *a) {

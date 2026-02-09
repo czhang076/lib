@@ -7,11 +7,14 @@ HEADERS = params.h reduce.h ntt.h poly.h polyvec.h fips202.h symmetric.h cbd.h r
 OBJECTS = reduce.o ntt.o poly.o polyvec.o fips202.o symmetric.o cbd.o randombytes.o indcpa.o kem.o verify.o test_kyber.o
 
 # 默认目标
-all: test_kyber.exe
+all: test_kyber.exe libpkyber.dll
 
 # 链接规则
 test_kyber.exe: $(OBJECTS)
 	$(CC) $(CFLAGS) -o test_kyber.exe $(OBJECTS)
+
+libpkyber.dll: $(OBJECTS)
+	$(CC) $(CFLAGS) -shared -o libpkyber.dll $(OBJECTS)
 
 # 编译规则 (.c -> .o)
 %.o: %.c $(HEADERS)
